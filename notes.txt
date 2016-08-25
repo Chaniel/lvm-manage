@@ -1,0 +1,162 @@
+LVM（logical volume manager）
+
+
+逻辑卷管理
+对底层磁盘进行抽象管理，可以不再限制磁盘空间大小。是对于磁盘的管理更为灵活。
+将底层物理硬盘抽象起来，一逻辑卷的形式表现给上层系统，逻辑卷的大小可以动态调整，而且不会丢失
+现有数据。新加入的硬盘也不会改变现有上层的逻辑卷。
+不同系统对磁盘抽象管理系统都有类似的实现。
+
+补充知识：
+物理硬盘-> 分区 -> 格式化 -> 使用/安装操作系统
+
+
+
+一. LVM的工作原理与概念
+- PE(physical extend) 逻辑卷管理的基本单位，默认是4M大小。
+- PV(physical volume) 包含多个PE
+- VG(volume group)  包含多个PV
+- LV(logical volume) 从VG中拿PE
+
+
+操作的目的是创建一个逻辑卷，取代原来的硬盘分区
+
+
+
+1. 创建PV
+首先把物理硬盘条带化（处理格式化）为物理卷，实际上是物理硬盘划分成了一个个的PE
+假设把硬盘400M格式化，有包括100个PE
+
+2. 创建卷组，VG
+空间池，把多个PV装入VG， 包含多个物理卷
+
+3. 创建LV，逻辑卷
+我们最终使用的是逻辑卷
+
+
+创建好后:
+/dev/vgname/lvname, 这是我们要格式化的对象
+
+每一个逻辑卷的空间可能来自不同的物理硬盘。
+
+
+
+二. LVM 的创建
+卷组是逻辑卷的空间池
+
+1. 将物理磁盘设备初始化为物理卷
+pvcreate /dev/sdb /dev/sdc
+
+
+2. 创建卷组，并将PV加入卷组中，将物理卷集合起来
+vgcreate linuxcast /dev/sdb /dev/sdc
+
+3. 基于卷组创建逻辑卷
+lvcreate -n mylv -L 2G linuxcast
+-n 逻辑卷名字
+-L 空间为2G
+linuxcast 要从linuxcast中获取空间
+
+
+4. 为创建好的逻辑卷创建文件系统
+mkfs.ext4 /dev/linuxcast/mylv
+
+5. 将格式化好的逻辑卷挂载使用
+mkdir -p /mnt/mylv
+mount /dev/linuxcast/mylv /mnt/mylv
+
+
+####　查看LVM
+- 查看物理卷信息
+pvdisplay(详细)
+pvs
+
+- 查看卷组信息
+vgdisplay(详细)
+vgs
+
+- 查看逻辑卷信息
+lvdisplay(详细)
+lvs
+
+
+三、删除逻辑卷
+1. 删除LV
+lvremove /dev/linuxcast/mylv
+
+2. 删除VG
+vgremove linuxcast
+
+3. 删除物理卷
+pvremove /dev/sdb
+
+
+四、LVM的扩大与缩小
+
+1. 保证VG中有足够的空闲空间，如果不够用需要先拉升VG卷组，先到第五步，然后在回来操作第四步
+vgdisplay
+2. 扩充逻辑卷
+lvextend -L +1G /dev/linuxcast/mylv
+
+3. 查看扩充后LV的大小
+lvdisplay
+
+4. 更新文件系统
+resize2fs /dev/linuxcast/mylv
+
+5. 查看更新后的文件系统
+df -h
+
+
+当卷组不够用到时候，我们想卷组中增加PV（物理卷）
+五、拉升一个卷组
+1. 将要添加到VG的硬盘格式化为PV
+pvcreate /dev/sdd
+
+2. 将新的PV添加到指定卷组中
+vgextend linuxcast /dev/sdd
+
+3. 查看扩充后的VG大小
+vgdisplay
+
+
+
+六、缩小一个逻辑卷(必须离线，容易出错，小心，实验失败，缩小小心)
+假设当前的逻辑卷大小为500M
+1. 卸载已经挂载的逻辑卷
+umount /dev/linuxcast/mylv
+
+2. 缩小文件系统
+（会提示需要运行fsck检查文件系统）
+e2fsck -f /dev/linuxcast/mylv
+
+# 目标，最后的大小为100M
+resize2fs /dev/linuxcast/mylv 100M
+
+3. 缩小LV
+# 这里需要需要缩小400M
+lvreduce -L -400M /dev/linuxcast/mylv
+4. 查看缩小后的LV
+lvdisplay
+5. 挂载
+mount /dev/linuxcast/mylv /mnt/mylv
+
+
+七、缩小卷组（比如要从系统中抽走一块硬盘）
+移除一个PV（物理卷，一块硬盘）
+
+1. 将一个PV从指定卷组中移除
+vgreduce linuxcast /dev/sdd
+2. 查看缩小后的卷组大小
+vgdisplay
+
+
+
+
+视频教程：
+http://study.163.com/course/courseLearn.htm?courseId=232008#/learn/video?lessonId=340074&courseId=232008
+
+脚本：
+https://github/chaniel/lvm-manage
+
+
